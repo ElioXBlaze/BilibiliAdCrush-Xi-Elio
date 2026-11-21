@@ -53,7 +53,7 @@
 用 Safari 打开直链，Stay 会接管安装：
 
 ```
-https://raw.githubusercontent.com/wyh5418804/BilibiliAdCrush-Xi-Elio/main/BilibiliAdCrush-Xi-Elio.user.js
+https://raw.githubusercontent.com/ElioXBlaze/BilibiliAdCrush-Xi-Elio/main/BilibiliAdCrush-Xi-Elio.user.js
 ```
 
 或手动：Stay → 新建脚本 → 粘贴 `BilibiliAdCrush-Xi-Elio.user.js` 全文 → 保存 → 打开 `bilibili.com` 刷新。
