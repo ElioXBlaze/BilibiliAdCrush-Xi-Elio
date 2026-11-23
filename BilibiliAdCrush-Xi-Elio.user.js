@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BilibiliAdCrush Xi/Elio
 // @namespace    https://local.yuanbao/bilibili-stay-adreplace
-// @version      2.0.0
+// @version      2.1.0
 // @description  全站精准去广告；首页「小火箭」等推广卡不留空白容器，原位换成一条真实推荐视频。专为 iPad/iPhone Safari + Stay 设计，零外部依赖、零数据上报。
 // @author       Xi/Elio X. Blaze
 // @match        https://www.bilibili.com/*
@@ -810,7 +810,14 @@
           catch (e) { return String(e); }
         },
         rescan: scanAll,
-        md5: md5
+        md5: md5,
+        resetFirstDonate: function () {
+          try { localStorage.removeItem(YBC_SEEN_KEY); } catch (e) {}
+          try { document.cookie = YBC_SEEN_CK + '=; domain=.bilibili.com; path=/; max-age=0'; } catch (e) {}
+          ui.donateSeen = false;
+          return '已重置首次弹窗标记，刷新页面即可再体验一次';
+        },
+        donateSeen: function () { return ybcSeen(); }
       };
     } catch (e) {}
     try {
@@ -843,8 +850,82 @@
   var ui = {
     root: null, panel: null, badge: null, stat: null, overlay: null,
     tab: 'alipay', collapsed: true, timer: null, drag: null,
-    expandedH: 0, animTimer: null
+    expandedH: 0, animTimer: null,
+    donateSeen: false, donateMode: ''
   };
+
+  /* 插件反馈 QQ 群：完整分享链接 + 群号兜底（分享链接可能过期，群号长期有效） */
+  var YBC_GROUP = {
+    id: '1134860332',
+    name: '插件反馈',
+    url: 'https://qun.qq.com/universal-share/share?ac=1&authKey=%2FDXPFWwtWjj98jGsOT9H2qhcfYu7jWQnh1zdMVXhq6umiD4Uq4CyVtLuKEwBqYVi&busi_data=eyJncm91cENvZGUiOiIxMTM0ODYwMzMyIiwidG9rZW4iOiJIY0JURm1XVHRUSlBieCtwUEtTZ3dPYWNXR25tMTNTaS9CaUZYNFVuVmc2SWpLWHRKR2pOTk5rSyt4eU9TYkoyIiwidWluIjoiMzU2MDcwNzgwOCJ9&data=Lac66SlF9K0iOqtDDj_THt-fbvlaQi8u4MOPQ3tPk7QgY768r30ut_DrWnZO7yLAWCClGuvRSSJdC25_cevCQg&svctype=4&tempid=h5_group_info'
+  };
+
+  /* 首次弹窗标记：独立于 @version，脚本更新不会重置。
+     localStorage 管本 origin 长期持久，.bilibili.com cookie 管跨子域（www/search/t/live/space）共享，
+     内存标记兜底无痕模式等存储不可写场景。三者任一命中即不再弹。 */
+  var YBC_SEEN_KEY = '__ybc_donate_seen', YBC_SEEN_CK = 'ybc_donate_seen';
+  function ybcSeen() {
+    if (ui.donateSeen) return true;
+    try { if (localStorage.getItem(YBC_SEEN_KEY)) { ui.donateSeen = true; return true; } } catch (e) {}
+    try {
+      if (new RegExp('(?:^|;\\s*)' + YBC_SEEN_CK + '=').test(document.cookie)) {
+        ui.donateSeen = true; return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function ybcMarkSeen(v) {
+    ui.donateSeen = true;
+    try { localStorage.setItem(YBC_SEEN_KEY, v || '1'); } catch (e) {}
+    try {
+      document.cookie = YBC_SEEN_CK + '=1; domain=.bilibili.com; path=/; max-age=31536000; SameSite=Lax';
+    } catch (e) {}
+  }
+  // 观看场景不打扰：播放页 / 番剧 / 直播不自动弹，其余页面首次使用才弹
+  function ybcShouldAutoDonate() {
+    if (ybcSeen()) return false;
+    if (location.hostname === 'live.bilibili.com') return false;
+    if (/^\/video\//.test(location.pathname) || /^\/bangumi\/play\//.test(location.pathname)) return false;
+    return true;
+  }
+  function ybcCopyText(t, okMsg) {
+    function fallback() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = t;
+        ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select(); ta.setSelectionRange(0, t.length);
+        document.execCommand('copy');
+        ta.remove();
+        return true;
+      } catch (e) { return false; }
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(function () { ybcToast(okMsg); }, function () {
+          ybcToast(fallback() ? okMsg : '复制失败，请手动记群号 ' + YBC_GROUP.id);
+        });
+        return;
+      }
+    } catch (e) {}
+    ybcToast(fallback() ? okMsg : '复制失败，请手动记群号 ' + YBC_GROUP.id);
+  }
+  function ybcOpenContact() {
+    try {
+      var a = document.createElement('a');
+      a.href = YBC_GROUP.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      (document.body || document.documentElement).appendChild(a);
+      a.click();
+      a.remove();
+      ybcToast('插件反馈群 ' + YBC_GROUP.id + ' · 链接失效可直接搜群号');
+    } catch (e) {
+      ybcToast('请搜索 QQ 群 ' + YBC_GROUP.id);
+    }
+  }
 
   function ybcStyle() {
     if (document.getElementById('ybc-style')) return;
@@ -899,6 +980,15 @@
       '  background:rgba(255,255,255,.09);color:#f2f3f7}',
       '.ybc-btn.hot{background:linear-gradient(135deg,#ff6b35,#ff9248);color:#fff;font-weight:700;flex:1.5}',
       '.ybc-foot{margin-top:11px;text-align:center;font-size:10px;color:#7d838f}',
+      /* 联系我们：菜单里的一个独立子项 */
+      '.ybc-contact{display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 10px;',
+      '  border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.045);cursor:pointer}',
+      '.ybc-contact-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}',
+      '.ybc-contact-t b{font-size:12px;color:#f2f3f7;font-weight:600}',
+      '.ybc-contact-t i{font-size:10px;font-style:normal;color:#9aa0ad;white-space:nowrap}',
+      '.ybc-contact-go,.ybc-contact-cp{flex:0 0 auto;width:26px;height:26px;border:0;border-radius:8px;',
+      '  background:rgba(255,255,255,.1);color:#ffb08a;font-size:13px;line-height:1;cursor:pointer}',
+      '.ybc-contact-cp{color:#c9cdd6}',
       '.ybc-mask{position:fixed;inset:0;z-index:2147483100;background:rgba(0,0,0,.62);',
       '  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:18px;',
       '  font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}',
@@ -920,7 +1010,17 @@
       '.ybc-hint{margin:11px 0 0;font-size:10.5px;color:#7d838f;text-align:center}',
       '.ybc-sign{margin:12px 0 0;text-align:center;font-size:11px;color:#ff8a5c}',
       '.ybc-close{float:right;width:26px;height:26px;border:0;border-radius:9px;',
-      '  background:rgba(255,255,255,.1);color:#f2f3f7;font-size:15px;line-height:1;cursor:pointer}'
+      '  background:rgba(255,255,255,.1);color:#f2f3f7;font-size:15px;line-height:1;cursor:pointer}',
+      /* 首次弹窗：谢绝按钮放在二维码上方，一打开就看得见，不用滚动 */
+      '.ybc-first{margin:12px 0 4px;padding:12px;border-radius:14px;',
+      '  background:rgba(255,107,53,.09);border:1px solid rgba(255,107,53,.28)}',
+      '.ybc-first-lead{margin:0 0 10px;font-size:12.5px;color:#e6e8ee;line-height:1.65}',
+      '.ybc-first-lead b{color:#ffb08a}',
+      '.ybc-decline{display:block;width:100%;height:46px;border:0;border-radius:12px;',
+      '  background:#f2f3f7;color:#171a21;font:700 14px/46px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;',
+      '  letter-spacing:.2px;cursor:pointer;-webkit-appearance:none;appearance:none}',
+      '.ybc-decline:active{background:#d9dce3;transform:scale(.99)}',
+      '.ybc-decline-note{margin:8px 0 0;text-align:center;font-size:11px;color:#9aa0ad}'
     ].join('\n');
     var s = document.createElement('style');
     s.id = 'ybc-style';
@@ -1011,6 +1111,24 @@
     body.appendChild(ybcSw('首页轮播净化', 'hideCarousel'));
     body.appendChild(ybcSw('接口补位', 'useApiFill'));
 
+    // 联系我们：菜单里的一个独立子项（打开群链接 / 复制群号兜底）
+    var contact = document.createElement('div');
+    contact.className = 'ybc-contact';
+    contact.innerHTML =
+      '<span class="ybc-contact-t"><b>联系我们 · ' + YBC_GROUP.name + '</b>' +
+      '<i>QQ群 ' + YBC_GROUP.id + '</i></span>' +
+      '<button class="ybc-contact-cp" title="复制群号">⧉</button>' +
+      '<button class="ybc-contact-go" title="打开QQ群">↗</button>';
+    contact.addEventListener('click', function (e) { e.stopPropagation(); ybcOpenContact(); });
+    contact.querySelector('.ybc-contact-cp').addEventListener('click', function (e) {
+      e.stopPropagation();
+      ybcCopyText(YBC_GROUP.id, '群号已复制 · ' + YBC_GROUP.id);
+    });
+    contact.querySelector('.ybc-contact-go').addEventListener('click', function (e) {
+      e.stopPropagation(); ybcOpenContact();
+    });
+    body.appendChild(contact);
+
     var btns = document.createElement('div');
     btns.className = 'ybc-btns';
     var b1 = document.createElement('button');
@@ -1037,7 +1155,7 @@
 
     var foot = document.createElement('div');
     foot.className = 'ybc-foot';
-    foot.textContent = 'v2.0.0 · 纯本地运行 · 不上传任何数据';
+    foot.textContent = 'v2.1.0 · 纯本地运行 · 不上传任何数据';
     body.appendChild(foot);
     panel.appendChild(body);
 
@@ -1181,8 +1299,14 @@
     }
   }
 
-  function ybcOpenDonate() {
-    if (ui.overlay) { ui.overlay.style.display = 'flex'; return; }
+  function ybcOpenDonate(mode) {
+    ui.donateMode = (mode === 'first') ? 'first' : 'manual';
+    if (ui.overlay) {
+      ui.overlay.style.display = 'flex';
+      ybcApplyDonateMode(ui.donateMode);
+      ybcSetTab(ui.tab);
+      return;
+    }
     var mask = document.createElement('div');
     mask.className = 'ybc-mask';
     mask.addEventListener('click', function (e) { if (e.target === mask) ybcCloseDonate(); });
@@ -1192,9 +1316,15 @@
     card.className = 'ybc-card';
     card.innerHTML =
       '<button class="ybc-close" id="ybc-close">×</button>' +
-      '<h2>投喂点火器</h2>' +
-      '<div class="ybc-en">Fuel the Crush</div>' +
-      '<p class="ybc-lead">广告被压碎的每一秒，都在烧我的发际线。<br>若这枚小钮替你守住了首页清净，顺手丢个能量球就行。</p>' +
+      '<h2 id="ybc-title">投喂点火器</h2>' +
+      '<div class="ybc-en" id="ybc-en">Fuel the Crush</div>' +
+      '<p class="ybc-lead" id="ybc-lead">广告被压碎的每一秒，都在烧我的发际线。<br>若这枚小钮替你守住了首页清净，顺手丢个能量球就行。</p>' +
+      '<div class="ybc-first" id="ybc-first" style="display:none">' +
+      '  <p class="ybc-first-lead">个人维护不易，若它替你挡掉了首页那几张小火箭，欢迎顺手投喂一份能量。<br>' +
+      '  <b>不打赏也可以免费使用全部功能</b>，谢绝之后不再弹窗。</p>' +
+      '  <button class="ybc-decline" id="ybc-decline">谢绝 · 免费继续使用全部功能</button>' +
+      '  <p class="ybc-decline-note">点它就行，之后更新版本也不会再打扰</p>' +
+      '</div>' +
       '<div class="ybc-tabs">' +
       '  <button class="ybc-tab on" data-tab="alipay">● 绿色能量 · 支付宝</button>' +
       '  <button class="ybc-tab" data-tab="wechat">● 赞赏 · 微信</button>' +
@@ -1210,16 +1340,35 @@
     card.querySelector('#ybc-close').addEventListener('click', function (e) {
       e.stopPropagation(); ybcCloseDonate();
     });
+    card.querySelector('#ybc-decline').addEventListener('click', function (e) {
+      e.stopPropagation();
+      ybcMarkSeen('declined');                 // 谢绝：永久不再弹
+      ybcCloseDonate();
+      ybcToast('已谢绝 · 全部功能照常免费');
+    });
     Array.prototype.forEach.call(card.querySelectorAll('.ybc-tab'), function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         ybcSetTab(btn.getAttribute('data-tab'));
       });
     });
+    ybcApplyDonateMode(ui.donateMode);
     ybcSetTab(ui.tab);
     document.addEventListener('keydown', function esc(e) {
       if (e.key === 'Escape' || e.keyCode === 27) ybcCloseDonate();
     });
+  }
+  function ybcApplyDonateMode(mode) {
+    if (!ui.overlay) return;
+    var first = (mode === 'first');
+    var t = ui.overlay.querySelector('#ybc-title');
+    var en = ui.overlay.querySelector('#ybc-en');
+    var lead = ui.overlay.querySelector('#ybc-lead');
+    var box = ui.overlay.querySelector('#ybc-first');
+    if (t) t.textContent = first ? '初次见面' : '投喂点火器';
+    if (en) en.textContent = first ? 'First Run · Fuel the Crush' : 'Fuel the Crush';
+    if (lead) lead.style.display = first ? 'none' : '';
+    if (box) box.style.display = first ? 'block' : 'none';
   }
   function ybcSetTab(name) {
     ui.tab = (name === 'wechat') ? 'wechat' : 'alipay';
@@ -1234,7 +1383,16 @@
     var c = ui.overlay.querySelector('#ybc-copy');
     if (c) c.innerHTML = YBC_COPY[ui.tab].lead + '<small>' + YBC_COPY[ui.tab].sub + '</small>';
   }
-  function ybcCloseDonate() { if (ui.overlay) ui.overlay.style.display = 'none'; }
+  function ybcCloseDonate() {
+    if (!ui.overlay) return;
+    ui.overlay.style.display = 'none';
+    if (ui.donateMode === 'first') {
+      // 点谢绝之外的任何关闭方式同样视为「不再提示」，避免反复打扰
+      if (!ui.donateSeen) ybcMarkSeen('seen');
+      ui.donateMode = 'manual';
+      ybcApplyDonateMode('manual');
+    }
+  }
 
   function ybcMeasure() {
     var p = ui.panel, was = p.className;
@@ -1277,7 +1435,16 @@
     });
     ybcRefresh();
     ui.timer = setInterval(ybcRefresh, 2500);
-    log('悬浮菜单 / 打赏窗口 就绪');
+
+    // 第一次使用：页面安稳后再弹，谢绝（或任意方式关闭）后永久不再弹
+    if (ybcShouldAutoDonate()) {
+      setTimeout(function () {
+        if (!ybcShouldAutoDonate()) return;
+        ybcOpenDonate('first');
+        log('首次使用弹窗已展示');
+      }, 900);
+    }
+    log('悬浮菜单 / 打赏窗口 / 联系我们 就绪');
   }
 
   /* ======================= 启动 ======================= */
